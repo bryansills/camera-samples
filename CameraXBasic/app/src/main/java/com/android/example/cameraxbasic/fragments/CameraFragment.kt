@@ -17,11 +17,8 @@
 package com.android.example.cameraxbasic.fragments
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
-import android.hardware.display.DisplayManager
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -37,7 +34,6 @@ import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCapture.Metadata
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -66,9 +62,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-/** Helper type alias used for analysis use case callbacks */
-typealias LumaListener = (luma: Double) -> Unit
-
 /**
  * Main fragment for this app. Implements all camera operations including:
  * - Viewfinder
@@ -82,33 +75,12 @@ class CameraFragment : Fragment() {
     private lateinit var outputDirectory: File
 
     private var displayId: Int = -1
-    private var lensFacing: Int = CameraSelector.LENS_FACING_BACK
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
 
-    private val displayManager by lazy {
-        requireContext().getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-    }
-
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
-
-    /**
-     * We need a display listener for orientation changes that do not trigger a configuration
-     * change, for example if we choose to override config change in manifest or for 180-degree
-     * orientation changes.
-     */
-    private val displayListener = object : DisplayManager.DisplayListener {
-        override fun onDisplayAdded(displayId: Int) = Unit
-        override fun onDisplayRemoved(displayId: Int) = Unit
-        override fun onDisplayChanged(displayId: Int) = view?.let { view ->
-            if (displayId == this@CameraFragment.displayId) {
-                Log.d(TAG, "Rotation changed: ${view.display.rotation}")
-                imageCapture?.targetRotation = view.display.rotation
-            }
-        } ?: Unit
-    }
 
     override fun onResume() {
         super.onResume()
@@ -134,9 +106,6 @@ class CameraFragment : Fragment() {
 
         // Shut down our background executor
         cameraExecutor.shutdown()
-
-        // Unregister the broadcast receivers and listeners
-        displayManager.unregisterDisplayListener(displayListener)
     }
 
     private fun setGalleryThumbnail(uri: Uri) {
@@ -163,9 +132,6 @@ class CameraFragment : Fragment() {
         container = view as ConstraintLayout
         viewFinder = container.findViewById(R.id.view_finder)
 
-        // Every time the orientation of device changes, update rotation for use cases
-        displayManager.registerDisplayListener(displayListener, null)
-
         // Determine the output directory
         outputDirectory = MainActivity.getOutputDirectory(requireContext())
 
@@ -183,19 +149,6 @@ class CameraFragment : Fragment() {
         }
     }
 
-    /**
-     * Inflate camera controls and update the UI manually upon config changes to avoid removing
-     * and re-adding the view finder from the view hierarchy; this provides a seamless rotation
-     * transition on devices that support it.
-     *
-     * NOTE: The flag is supported starting in Android 8 but there still is a small flash on the
-     * screen for devices that run Android 9 or below.
-     */
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        updateCameraUi()
-    }
-
     /** Declare and bind preview, capture and analysis use cases */
     private fun bindCameraUseCases() {
 
@@ -209,7 +162,7 @@ class CameraFragment : Fragment() {
         val rotation = viewFinder.display.rotation
 
         // Bind the CameraProvider to the LifeCycleOwner
-        val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+        val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
         cameraProviderFuture.addListener(Runnable {
 
@@ -301,17 +254,8 @@ class CameraFragment : Fragment() {
                 // Create output file to hold the image
                 val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
 
-                // Setup image capture metadata
-                val metadata = Metadata().apply {
-
-                    // Mirror image when using the front camera
-                    isReversedHorizontal = lensFacing == CameraSelector.LENS_FACING_FRONT
-                }
-
                 // Create output options object which contains file + metadata
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile)
-                        .setMetadata(metadata)
-                        .build()
+                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
                 // Setup image capture listener which is triggered after photo has been taken
                 imageCapture.takePicture(
@@ -360,13 +304,7 @@ class CameraFragment : Fragment() {
 
         // Listener for button used to switch cameras
         controls.findViewById<ImageButton>(R.id.camera_switch_button).setOnClickListener {
-            lensFacing = if (CameraSelector.LENS_FACING_FRONT == lensFacing) {
-                CameraSelector.LENS_FACING_BACK
-            } else {
-                CameraSelector.LENS_FACING_FRONT
-            }
-            // Re-bind use cases to update selected camera
-            bindCameraUseCases()
+            // do nothing for now
         }
 
         // Listener for button used to view the most recent photo
