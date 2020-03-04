@@ -31,6 +31,10 @@ android {
         versionName "1.0.0"
     }
 
+    viewBinding {
+        enabled = true
+    }
+
     compileOptions {
         sourceCompatibility rootProject.ext.java_version
         targetCompatibility rootProject.ext.java_version

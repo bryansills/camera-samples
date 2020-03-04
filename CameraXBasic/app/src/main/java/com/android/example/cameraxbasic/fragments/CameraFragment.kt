@@ -17,9 +17,6 @@
 package com.android.example.cameraxbasic.fragments
 
 import android.annotation.SuppressLint
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -28,7 +25,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.MimeTypeMap
 import android.widget.ImageButton
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.Camera
@@ -40,15 +36,12 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
-import androidx.core.net.toFile
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.Navigation
 import com.android.example.cameraxbasic.MainActivity
 import com.android.example.cameraxbasic.R
-import com.android.example.cameraxbasic.utils.ANIMATION_FAST_MILLIS
-import com.android.example.cameraxbasic.utils.ANIMATION_SLOW_MILLIS
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.RequestOptions
 import kotlinx.coroutines.Dispatchers
@@ -186,6 +179,7 @@ class CameraFragment : Fragment() {
                 // We request aspect ratio but no resolution to match preview config, but letting
                 // CameraX optimize for whatever specific resolution best fits our use cases
                 .setTargetAspectRatio(screenAspectRatio)
+                .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
                 // Set initial target rotation, we will have to call this again if rotation changes
                 // during the lifecycle of this use case
                 .setTargetRotation(rotation)
@@ -267,44 +261,26 @@ class CameraFragment : Fragment() {
                     override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                         val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
                         Log.d(TAG, "Photo capture succeeded: $savedUri")
+                        Navigation.findNavController(requireActivity(), R.id.fragment_container).navigate(CameraFragmentDirections.actionCameraFragmentToPhotoFragment(savedUri.path!!))
 
                         // We can only change the foreground Drawable using API level 23+ API
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             // Update the gallery thumbnail with latest picture taken
                             setGalleryThumbnail(savedUri)
                         }
-
-                        // If the folder selected is an external media directory, this is
-                        // unnecessary but otherwise other apps will not be able to access our
-                        // images unless we scan them using [MediaScannerConnection]
-                        val mimeType = MimeTypeMap.getSingleton()
-                                .getMimeTypeFromExtension(savedUri.toFile().extension)
-                        MediaScannerConnection.scanFile(
-                                context,
-                                arrayOf(savedUri.toString()),
-                                arrayOf(mimeType)
-                        ) { _, uri ->
-                            Log.d(TAG, "Image capture scanned into media store: $uri")
-                        }
                     }
                 })
-
-                // We can only change the foreground Drawable using API level 23+ API
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
-                    // Display flash animation to indicate that photo was captured
-                    container.postDelayed({
-                        container.foreground = ColorDrawable(Color.WHITE)
-                        container.postDelayed(
-                                { container.foreground = null }, ANIMATION_FAST_MILLIS)
-                    }, ANIMATION_SLOW_MILLIS)
-                }
             }
         }
 
         // Listener for button used to switch cameras
         controls.findViewById<ImageButton>(R.id.camera_switch_button).setOnClickListener {
-            // do nothing for now
+            imageCapture?.flashMode = when (imageCapture?.flashMode) {
+                ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
+                ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
+                else -> ImageCapture.FLASH_MODE_AUTO
+            }
         }
 
         // Listener for button used to view the most recent photo

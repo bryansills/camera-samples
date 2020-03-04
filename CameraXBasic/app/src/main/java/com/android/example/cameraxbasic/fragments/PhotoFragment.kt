@@ -22,7 +22,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import androidx.fragment.app.Fragment
-import com.android.example.cameraxbasic.R
+import androidx.navigation.fragment.navArgs
 import com.bumptech.glide.Glide
 import java.io.File
 
@@ -30,14 +30,16 @@ import java.io.File
 /** Fragment used for each individual page showing a photo inside of [GalleryFragment] */
 class PhotoFragment internal constructor() : Fragment() {
 
+    private val args: PhotoFragmentArgs by navArgs()
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?,
                               savedInstanceState: Bundle?) = ImageView(context)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val args = arguments ?: return
-        val resource = args.getString(FILE_NAME_KEY)?.let { File(it) } ?: R.drawable.ic_photo
-        Glide.with(view).load(resource).into(view as ImageView)
+        val file = File(args.fileName)
+//        val resource = args.getString(FILE_NAME_KEY)?.let { File(it) } ?: R.drawable.ic_photo
+        Glide.with(view).load(file).into(view as ImageView)
     }
 
     companion object {

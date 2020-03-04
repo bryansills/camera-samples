@@ -47,6 +47,9 @@
             app:destination="@id/permissions_fragment"
             app:popUpTo="@id/camera_fragment"
             app:popUpToInclusive="true"/>
+        <action
+            android:id="@+id/action_camera_fragment_to_photoFragment"
+            app:destination="@id/photoFragment" />
 
     </fragment>
 
@@ -56,6 +59,14 @@
         android:label="GalleryFragment" >
         <argument
             android:name="root_directory"
+            app:argType="string" />
+    </fragment>
+    <fragment
+        android:id="@+id/photoFragment"
+        android:name="com.android.example.cameraxbasic.fragments.PhotoFragment"
+        android:label="PhotoFragment" >
+        <argument
+            android:name="file_name"
             app:argType="string" />
     </fragment>
 
