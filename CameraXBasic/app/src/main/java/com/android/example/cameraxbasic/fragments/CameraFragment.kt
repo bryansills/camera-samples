@@ -18,7 +18,6 @@ package com.android.example.cameraxbasic.fragments
 
 import android.annotation.SuppressLint
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
@@ -36,16 +35,10 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
-import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.Navigation
 import com.android.example.cameraxbasic.MainActivity
 import com.android.example.cameraxbasic.R
-import com.bumptech.glide.Glide
-import com.bumptech.glide.request.RequestOptions
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -65,9 +58,7 @@ class CameraFragment : Fragment() {
 
     private lateinit var container: ConstraintLayout
     private lateinit var viewFinder: PreviewView
-    private lateinit var outputDirectory: File
 
-    private var displayId: Int = -1
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
@@ -101,39 +92,14 @@ class CameraFragment : Fragment() {
         cameraExecutor.shutdown()
     }
 
-    private fun setGalleryThumbnail(uri: Uri) {
-        // Reference of the view that holds the gallery thumbnail
-        val thumbnail = container.findViewById<ImageButton>(R.id.photo_view_button)
-
-        // Run the operations in the view's thread
-        thumbnail.post {
-
-            // Remove thumbnail padding
-            thumbnail.setPadding(resources.getDimension(R.dimen.stroke_small).toInt())
-
-            // Load thumbnail into circular button using Glide
-            Glide.with(thumbnail)
-                    .load(uri)
-                    .apply(RequestOptions.circleCropTransform())
-                    .into(thumbnail)
-        }
-    }
-
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         container = view as ConstraintLayout
         viewFinder = container.findViewById(R.id.view_finder)
 
-        // Determine the output directory
-        outputDirectory = MainActivity.getOutputDirectory(requireContext())
-
         // Wait for the views to be properly laid out
         viewFinder.post {
-
-            // Keep track of the display in which this view is attached
-            displayId = viewFinder.display.displayId
-
             // Build UI controls
             updateCameraUi()
 
@@ -230,20 +196,12 @@ class CameraFragment : Fragment() {
         // Inflate a new view containing all UI for controlling the camera
         val controls = View.inflate(requireContext(), R.layout.camera_ui_container, container)
 
-        // In the background, load latest photo taken (if any) for gallery thumbnail
-        lifecycleScope.launch(Dispatchers.IO) {
-            outputDirectory.listFiles { file ->
-                EXTENSION_WHITELIST.contains(file.extension.toUpperCase(Locale.ROOT))
-            }?.max()?.let {
-                setGalleryThumbnail(Uri.fromFile(it))
-            }
-        }
-
         // Listener for button used to capture photo
         controls.findViewById<ImageButton>(R.id.camera_capture_button).setOnClickListener {
 
             // Get a stable reference of the modifiable image capture use case
             imageCapture?.let { imageCapture ->
+                val outputDirectory = MainActivity.getOutputDirectory(requireContext())
 
                 // Create output file to hold the image
                 val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
@@ -262,12 +220,6 @@ class CameraFragment : Fragment() {
                         val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
                         Log.d(TAG, "Photo capture succeeded: $savedUri")
                         Navigation.findNavController(requireActivity(), R.id.fragment_container).navigate(CameraFragmentDirections.actionCameraFragmentToPhotoFragment(savedUri.path!!))
-
-                        // We can only change the foreground Drawable using API level 23+ API
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            // Update the gallery thumbnail with latest picture taken
-                            setGalleryThumbnail(savedUri)
-                        }
                     }
                 })
             }
@@ -278,19 +230,7 @@ class CameraFragment : Fragment() {
             imageCapture?.flashMode = when (imageCapture?.flashMode) {
                 ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
                 ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
-                ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_AUTO
                 else -> ImageCapture.FLASH_MODE_AUTO
-            }
-        }
-
-        // Listener for button used to view the most recent photo
-        controls.findViewById<ImageButton>(R.id.photo_view_button).setOnClickListener {
-            // Only navigate when the gallery has photos
-            if (true == outputDirectory.listFiles()?.isNotEmpty()) {
-                Navigation.findNavController(
-                        requireActivity(), R.id.fragment_container
-                ).navigate(CameraFragmentDirections
-                        .actionCameraToGallery(outputDirectory.absolutePath))
             }
         }
     }
