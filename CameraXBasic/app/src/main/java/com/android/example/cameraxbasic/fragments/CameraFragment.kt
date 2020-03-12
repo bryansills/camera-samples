@@ -26,7 +26,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import androidx.camera.core.AspectRatio
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -58,10 +57,6 @@ class CameraFragment : Fragment() {
 
     private lateinit var container: ConstraintLayout
     private lateinit var viewFinder: PreviewView
-
-    private var preview: Preview? = null
-    private var imageCapture: ImageCapture? = null
-    private var camera: Camera? = null
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
@@ -100,70 +95,112 @@ class CameraFragment : Fragment() {
 
         // Wait for the views to be properly laid out
         viewFinder.post {
-            // Build UI controls
-            updateCameraUi()
+            //region Bind camera use cases
+            // Get screen metrics used to setup camera for full screen resolution
+            val metrics = DisplayMetrics().also { viewFinder.display.getRealMetrics(it) }
+            Log.d(TAG, "Screen metrics: ${metrics.widthPixels} x ${metrics.heightPixels}")
 
-            // Bind use cases
-            bindCameraUseCases()
-        }
-    }
+            val screenAspectRatio = aspectRatio(metrics.widthPixels, metrics.heightPixels)
+            Log.d(TAG, "Preview aspect ratio: $screenAspectRatio")
 
-    /** Declare and bind preview, capture and analysis use cases */
-    private fun bindCameraUseCases() {
-
-        // Get screen metrics used to setup camera for full screen resolution
-        val metrics = DisplayMetrics().also { viewFinder.display.getRealMetrics(it) }
-        Log.d(TAG, "Screen metrics: ${metrics.widthPixels} x ${metrics.heightPixels}")
-
-        val screenAspectRatio = aspectRatio(metrics.widthPixels, metrics.heightPixels)
-        Log.d(TAG, "Preview aspect ratio: $screenAspectRatio")
-
-        val rotation = viewFinder.display.rotation
-
-        // Bind the CameraProvider to the LifeCycleOwner
-        val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
-        cameraProviderFuture.addListener(Runnable {
-
-            // CameraProvider
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-
-            // Preview
-            preview = Preview.Builder()
-                // We request aspect ratio but no resolution
-                .setTargetAspectRatio(screenAspectRatio)
-                // Set initial target rotation
-                .setTargetRotation(rotation)
-                .build()
-
-            // Attach the viewfinder's surface provider to preview use case
-            preview?.setSurfaceProvider(viewFinder.previewSurfaceProvider)
+            val rotation = viewFinder.display.rotation
 
             // ImageCapture
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                // We request aspect ratio but no resolution to match preview config, but letting
-                // CameraX optimize for whatever specific resolution best fits our use cases
-                .setTargetAspectRatio(screenAspectRatio)
-                .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
-                // Set initial target rotation, we will have to call this again if rotation changes
-                // during the lifecycle of this use case
-                .setTargetRotation(rotation)
-                .build()
+            var imageCapture: ImageCapture? = null
 
-            // Must unbind the use-cases before rebinding them
-            cameraProvider.unbindAll()
+            // Bind the CameraProvider to the LifeCycleOwner
+            val cameraSelector = CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build()
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
+            cameraProviderFuture.addListener(Runnable {
 
-            try {
-                // A variable number of use-cases can be passed here -
-                // camera provides access to CameraControl & CameraInfo
-                camera = cameraProvider.bindToLifecycle(
+                // CameraProvider
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+                // Preview
+                val preview = Preview.Builder()
+                    // We request aspect ratio but no resolution
+                    .setTargetAspectRatio(screenAspectRatio)
+                    // Set initial target rotation
+                    .setTargetRotation(rotation)
+                    .build()
+
+                imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    // We request aspect ratio but no resolution to match preview config, but letting
+                    // CameraX optimize for whatever specific resolution best fits our use cases
+                    .setTargetAspectRatio(screenAspectRatio)
+                    .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
+                    // Set initial target rotation, we will have to call this again if rotation changes
+                    // during the lifecycle of this use case
+                    .setTargetRotation(rotation)
+                    .build()
+
+                // Attach the viewfinder's surface provider to preview use case
+                preview.setSurfaceProvider(viewFinder.previewSurfaceProvider)
+
+                // Must unbind the use-cases before rebinding them
+                cameraProvider.unbindAll()
+
+                try {
+                    // A variable number of use-cases can be passed here -
+                    // camera provides access to CameraControl & CameraInfo
+                    cameraProvider.bindToLifecycle(
                         this, cameraSelector, preview, imageCapture)
-            } catch(exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
+                } catch(exc: Exception) {
+                    Log.e(TAG, "Use case binding failed", exc)
+                }
+
+            }, ContextCompat.getMainExecutor(requireContext()))
+            //endregion
+
+            //region Update camera UI
+            // Remove previous UI if any
+            container.findViewById<ConstraintLayout>(R.id.camera_ui_container)?.let {
+                container.removeView(it)
             }
 
-        }, ContextCompat.getMainExecutor(requireContext()))
+            // Inflate a new view containing all UI for controlling the camera
+            val controls = View.inflate(requireContext(), R.layout.camera_ui_container, container)
+
+            // Listener for button used to capture photo
+            controls.findViewById<ImageButton>(R.id.camera_capture_button).setOnClickListener {
+
+                // Get a stable reference of the modifiable image capture use case
+                imageCapture?.let { imageCapture ->
+                    val outputDirectory = MainActivity.getOutputDirectory(requireContext())
+
+                    // Create output file to hold the image
+                    val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
+
+                    // Create output options object which contains file + metadata
+                    val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+                    // Setup image capture listener which is triggered after photo has been taken
+                    imageCapture.takePicture(
+                        outputOptions, cameraExecutor, object : ImageCapture.OnImageSavedCallback {
+                        override fun onError(exc: ImageCaptureException) {
+                            Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                        }
+
+                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                            val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
+                            Log.d(TAG, "Photo capture succeeded: $savedUri")
+                            Navigation.findNavController(requireActivity(), R.id.fragment_container).navigate(CameraFragmentDirections.actionCameraFragmentToPhotoFragment(savedUri.path!!))
+                        }
+                    })
+                }
+            }
+
+            // Listener for button used to switch cameras
+            controls.findViewById<ImageButton>(R.id.camera_switch_button).setOnClickListener {
+                imageCapture?.flashMode = when (imageCapture?.flashMode) {
+                    ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
+                    ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
+                    else -> ImageCapture.FLASH_MODE_AUTO
+                }
+            }
+            //endregion
+        }
     }
 
     /**
@@ -183,56 +220,6 @@ class CameraFragment : Fragment() {
             return AspectRatio.RATIO_4_3
         }
         return AspectRatio.RATIO_16_9
-    }
-
-    /** Method used to re-draw the camera UI controls, called every time configuration changes. */
-    private fun updateCameraUi() {
-
-        // Remove previous UI if any
-        container.findViewById<ConstraintLayout>(R.id.camera_ui_container)?.let {
-            container.removeView(it)
-        }
-
-        // Inflate a new view containing all UI for controlling the camera
-        val controls = View.inflate(requireContext(), R.layout.camera_ui_container, container)
-
-        // Listener for button used to capture photo
-        controls.findViewById<ImageButton>(R.id.camera_capture_button).setOnClickListener {
-
-            // Get a stable reference of the modifiable image capture use case
-            imageCapture?.let { imageCapture ->
-                val outputDirectory = MainActivity.getOutputDirectory(requireContext())
-
-                // Create output file to hold the image
-                val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
-
-                // Create output options object which contains file + metadata
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
-
-                // Setup image capture listener which is triggered after photo has been taken
-                imageCapture.takePicture(
-                        outputOptions, cameraExecutor, object : ImageCapture.OnImageSavedCallback {
-                    override fun onError(exc: ImageCaptureException) {
-                        Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
-                    }
-
-                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                        val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
-                        Log.d(TAG, "Photo capture succeeded: $savedUri")
-                        Navigation.findNavController(requireActivity(), R.id.fragment_container).navigate(CameraFragmentDirections.actionCameraFragmentToPhotoFragment(savedUri.path!!))
-                    }
-                })
-            }
-        }
-
-        // Listener for button used to switch cameras
-        controls.findViewById<ImageButton>(R.id.camera_switch_button).setOnClickListener {
-            imageCapture?.flashMode = when (imageCapture?.flashMode) {
-                ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-                ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
-                else -> ImageCapture.FLASH_MODE_AUTO
-            }
-        }
     }
 
     companion object {
