@@ -22,14 +22,20 @@ import android.os.Bundle
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import androidx.camera.core.AspectRatio
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraInfoUnavailableException
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.MeteringPointFactory
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -60,6 +66,7 @@ class CameraFragment : Fragment() {
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var camera: Camera
 
     override fun onResume() {
         super.onResume()
@@ -87,7 +94,7 @@ class CameraFragment : Fragment() {
         cameraExecutor.shutdown()
     }
 
-    @SuppressLint("MissingPermission")
+    @SuppressLint("MissingPermission", "ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         container = view as ConstraintLayout
@@ -137,6 +144,42 @@ class CameraFragment : Fragment() {
 
                 // Attach the viewfinder's surface provider to preview use case
                 preview.setSurfaceProvider(viewFinder.previewSurfaceProvider)
+//                viewFinder.setOnTouchListener { _, event ->
+//                    if (event.action != MotionEvent.ACTION_UP) {
+//                        return@setOnTouchListener false
+//                    }
+//
+//                    val factory: MeteringPointFactory = SurfaceOrientedMeteringPointFactory(
+//                        viewFinder.width.toFloat(), viewFinder.height.toFloat()
+//                    )
+//                    val point = factory.createPoint(event.x, event.y)
+//                    val action = FocusMeteringAction.Builder(point).disableAutoCancel().build()
+//                    camera.cameraControl.startFocusAndMetering(action)
+//
+//                    return@setOnTouchListener true
+//                }
+                viewFinder.setOnTouchListener { _, event ->
+                    return@setOnTouchListener when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            val factory: MeteringPointFactory = SurfaceOrientedMeteringPointFactory(
+                                viewFinder.width.toFloat(), viewFinder.height.toFloat()
+                            )
+                            val autoFocusPoint = factory.createPoint(event.x, event.y)
+                            try {
+                                camera.cameraControl.startFocusAndMetering(
+                                    FocusMeteringAction.Builder(autoFocusPoint).disableAutoCancel().build()
+                                )
+                            } catch (e: CameraInfoUnavailableException) {
+                                Log.d("ERROR", "cannot access camera", e)
+                            }
+                            true
+                        }
+                        else -> false // Unhandled event.
+                    }
+                }
 
                 // Must unbind the use-cases before rebinding them
                 cameraProvider.unbindAll()
@@ -144,7 +187,7 @@ class CameraFragment : Fragment() {
                 try {
                     // A variable number of use-cases can be passed here -
                     // camera provides access to CameraControl & CameraInfo
-                    cameraProvider.bindToLifecycle(
+                    camera = cameraProvider.bindToLifecycle(
                         this, cameraSelector, preview, imageCapture)
                 } catch(exc: Exception) {
                     Log.e(TAG, "Use case binding failed", exc)
@@ -198,6 +241,8 @@ class CameraFragment : Fragment() {
                     ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
                     else -> ImageCapture.FLASH_MODE_AUTO
                 }
+
+                camera.cameraControl.enableTorch(imageCapture?.flashMode == ImageCapture.FLASH_MODE_ON)
             }
             //endregion
         }
